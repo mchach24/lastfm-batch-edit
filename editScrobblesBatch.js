@@ -32,6 +32,17 @@ function scrobbleHasChange(form, newAttributes = {}) {
     }
     return false
 }
+function scrobbleTargetAlbumMatches(form, targetAlbum) {
+    const $form = jQuery(form)
+    const $albumInput = $form.find('[name="album_name"]')
+    console.log(`Album:"${$albumInput.val().toLowerCase()}", Target:"${targetAlbum.toLowerCase()}"`)
+    if ($albumInput.val().toLowerCase() == targetAlbum.toLowerCase()) {
+        console.log("MATCH")
+        return true
+    }
+    console.log("NO MATCH")
+    return false
+}
 function getNumPages() {
     return parseInt(jQuery('.pagination-list > .pagination-page:nth(-1)').text().trim())
 }
@@ -56,12 +67,11 @@ async function setPage(n) {
             break
         }
     }
-
     // The event listeners on the hidden forms are not initialized for an unknown amount of time after the page is done loading
     await sleep(1000)
 }
 let editScrobblesBatchInProgress = false
-async function editScrobblesBatch(newAttributes = {}) {
+async function editScrobblesBatch(newAttributes = {}, targetAlbum) {
     if (editScrobblesBatchInProgress) {
         alert("There is a batch edit already in progress, canceling")
     }
@@ -73,7 +83,7 @@ async function editScrobblesBatch(newAttributes = {}) {
     for (let page = lastPage; page >= 1; page--) {
         await setPage(page)
         const forms = jQuery('[action*="/library/edit"]').toArray().filter((form) => {
-            return scrobbleHasChange(form, newAttributes)
+            return scrobbleHasChange(form, newAttributes) && scrobbleTargetAlbumMatches(form, targetAlbum)
         })
         for (let form of forms) {
             await editScrobble(form, newAttributes)
@@ -87,7 +97,7 @@ async function editScrobblesBatch(newAttributes = {}) {
 }
 function getAttributesFromModal() {
     const res = {}
-    jQuery('.modal-body input[type=text]:visible').toArray().forEach((input) => {
+    jQuery('.modal-body input[type=text]:visible').not('input[name=album_target_name]').toArray().forEach((input) => {
         res[input.name] = input.value
     })
     return res
@@ -109,10 +119,21 @@ function injectButton() {
     })
     $applyToAll.click(function(e) {
         e.preventDefault()
-        editScrobblesBatch(getAttributesFromModal())
+        const targetAlbum = jQuery('.modal-body input[name=album_target_name]').val()
+        editScrobblesBatch(getAttributesFromModal(), targetAlbum)
         return false
     })
     $applyToAll.insertBefore($cancel)
+}
+function injectTargetAlbumField() {
+    const $albumNameForm = jQuery('.modal-body .form-group--album_artist_name')
+    const albumName = jQuery('#id_album_name').val()
+    const $albumTargetForm = $albumNameForm.after(`<div class="form-group form-group--album_target_name js-form-group">
+            <label for="id_album_target_name" class="control-label">Target Album To Edit</label>
+            <div class="js-form-group-controls form-group-controls">
+                    <input id="id_album_target_name" name="album_target_name" type="text" value="${albumName}">
+            </div>
+        </div>`)
 }
 
 let injectedCSS = false
@@ -131,13 +152,11 @@ function injectCSS() {
         }
     `;
     var style = document.createElement('style');
-
     if (style.styleSheet) {
         style.styleSheet.cssText = css;
     } else {
         style.appendChild(document.createTextNode(css));
     }
-
     document.getElementsByTagName('head')[0].appendChild(style);
     injectedCSS = true
 }
@@ -150,6 +169,7 @@ function init() {
             return
         }
         await waitForPopup(true)
+        injectTargetAlbumField()
         injectButton()
     })
 }
